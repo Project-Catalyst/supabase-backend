@@ -28,6 +28,26 @@ async function getChallengesData(fundNumber) {
   return data
 }
 
+/** getProposalsData
+ * Axios get request to the proposals.json file in the PA-Tool repository:
+ * https://github.com/Project-Catalyst/pa-tool/tree/master/src/assets/data/f${fundNumber}
+ * @param {integer} fundNumber 
+ * @returns {proposalsObj}
+ */
+ async function getProposalsData(fundNumber) {
+  console.log("... axios request to Catalyst PA-Tool repository data")
+  let data;
+  const axios = require('axios');
+  try {
+    const resp = await axios.get(`https://raw.githubusercontent.com/Project-Catalyst/pa-tool/master/src/assets/data/f${fundNumber}/proposals.json`);
+    data = resp.data;
+  } catch (error) {
+    console.log(`!! Error requesting from Catalyst Voter Tool repository:`, error)
+    throw new Error("Error requesting from Catalyst Voter Tool repository.")
+  }
+  return data
+}
+
 
 /** CATALYST SUPABASE API FUCTIONS
  * 
@@ -83,6 +103,29 @@ async function getFundByNumber(fundNumber) {
     console.log(`!! Warning: more than one Fund${fundNumber} record identified. Used the first record returned.`)
   }
   return data[0]
+}
+
+/** getChallengesByFund
+ * Get the Fund row object from Catalyst Supabase Funds Table related to the fundNumber provived.
+ * @param {integer} fundNumber 
+ * @returns {challengesObj}
+ */
+ async function getChallengesByFund(fundNumber) {
+  console.log(`... connecting with catalystSB-api < getChallengesByFund(${fundNumber}) >`)
+  let {supabase} = await import(CATALYST_API_MODULE);
+  const { data, error } = await supabase
+    .from('Challenges')
+    .select("*")
+  
+  if(error) { 
+    console.log(`!! Error requesting from Catalyst Supabase Challenges: `, error)
+    throw new Error("Error requesting from Catalyst Supabase Challenges Table")
+  } 
+  else if (data.length === 0) {
+    console.log(`!! Catalyst Supabase Table-Challenges from Fund${fundNumber} do not exist.`)
+    throw new Error(`Catalyst Supabase Challenges fund_id=${fundNumber} records not found.`)
+  }
+  return data
 }
 
 /** supabaseInsert
@@ -151,25 +194,44 @@ async function insertTblChallenges(fundNumber) {
       brief: ch.description,
       budget: ch.amount,
       currency: "$",
+      url: ch.url,
       fund_id: fund.id
     }
   ))
   await supabaseInsert("Challenges", insertData)
 }
 
-async function insertTblProposals() {
-  console.log('>> INSERT TBL-Proposals DATA:')
-
+async function insertTblProposals(fundNumber) {
+  console.log('\n>> INSERT TBL-Proposals DATA:')
+  let proposals = await getProposalsData(fundNumber)
+  let fund = await getFundByNumber(fundNumber);
+  let challenges = await getChallengesByFund(fundNumber)
+  let insertData = proposals.map( (p) => (
+    {
+      internal_id: p.id,
+      title:  p.title,
+      url:  p.url,
+      author: p.author,
+      problem_statement:  p.description,
+      problem_solution:  p.problem_solution,
+      relevant_experience:  p.relevant_experience,
+      budget:  p.requested_funds,
+      currency: "$",
+      tags: p.tags,
+      challenge_id:  challenges.filter( (ch) => ch.internal_id===p.category )[0].id,
+      fund_id: fund.id
+    }
+  ))
+  await supabaseInsert("Proposals", insertData)
 }
 
 
 async function pushFundData(fundNumber) {
   console.log(`=============================\n CALL TO < pushFundData(${fundNumber}) >\n=============================`)
-  fundNumber = parseInt(fundNumber)
-  
-  await insertTblFunds(fundNumber)
-  await insertTblChallenges(fundNumber)
-  // await insertTblProposals()
+   
+  await insertTblFunds(parseInt(fundNumber))
+  await insertTblChallenges(parseInt(fundNumber))
+  await insertTblProposals(parseInt(fundNumber))
 
 }
 
