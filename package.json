@@ -2,9 +2,9 @@
   "name": "supabase-backend",
   "version": "1.0.0",
   "description": "Setup and management of Supabase Catalyst DB",
-  "main": "index.js",
+  "main": "catalystSB.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tsc && cross-env NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 jest"
   },
   "repository": {
     "type": "git",
@@ -20,7 +20,7 @@
     "@supabase/supabase-js": "^1.35.7",
     "axios": "^0.27.2",
     "commander": "^9.4.1",
-    "csv-parse": "^5.3.0",
-    "jquery": "^3.6.1"
+    "csvtojson": "^2.0.10",
+    "fs": "^0.0.1-security"
   }
 }

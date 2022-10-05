@@ -1,5 +1,12 @@
 const CATALYST_API_MODULE = './catalystSB-api.mjs'
+const OPTIONS = require('./options.json')
 
+const axios = require('axios');
+const csvParser = require('csvtojson');
+
+/**
+ * CMD INSTANTIATION
+ */
 const { Command } = require('commander');
 const program = new Command();
 program
@@ -8,18 +15,41 @@ program
 program.parse(process.argv);
 
 
-/** getChallengesData
- * Axios get request to the challenges.json file in the Voter-Tool repository:
- * https://github.com/Project-Catalyst/voter-tool/tree/master/public/data/f${fundNumber}
+/********************************************
+    CATALYST REPOSITORIES FETCH FUNCTIONS
+ ******************************************** 
+ *
+ * Functions to fetch data from different Catalyst Github repositories
+ * to recover data to be processed and futher pushed to Catalyst Supabase tables.
+ *  
+ */
+
+function getPath(fileRef, fundNumber) {
+  if(fileRef==='challenges') {
+    return OPTIONS.CHALLENGES_URL.replace("${fundNumber}", String(fundNumber))
+  }
+  else if(fileRef==='proposals') {
+    return OPTIONS.CHALLENGES_URL.replace("${fundNumber}", String(fundNumber))
+  }
+  else if (fileRef==='assessments') {
+    return OPTIONS.ASSESSMENTS_PATH
+  }
+  else {
+    throw new Error(`Error on Catalyst data path: fileRef=${fileRef} does not exist. Select from fileRef=["challenges", "proposals", "assessments"]`)
+  }
+}
+
+/** fetchChallengesData
+ * Axios get request to the challenges.json file in the Voter-Tool repository.
+ * Path configuration is provided on OPTIONS.CHALLENGES_URL
  * @param {integer} fundNumber 
  * @returns {challengesObj}
  */
-async function getChallengesData(fundNumber) {
-  console.log("... axios request to Catalyst Voter Tool repository data")
+async function fetchChallengesData(fundNumber) {
+  console.log("... axios request to < challenges.json > on Catalyst Voter Tool repository")
   let data;
-  const axios = require('axios');
   try {
-    const resp = await axios.get(`https://raw.githubusercontent.com/Project-Catalyst/voter-tool/master/public/data/f${fundNumber}/challenges.json`);
+    const resp = await axios.get(getPath('challenges', fundNumber));
     data = resp.data;
   } catch (error) {
     console.log(`!! Error requesting from Catalyst Voter Tool repository:`, error)
@@ -28,18 +58,17 @@ async function getChallengesData(fundNumber) {
   return data
 }
 
-/** getProposalsData
- * Axios get request to the proposals.json file in the PA-Tool repository:
- * https://github.com/Project-Catalyst/pa-tool/tree/master/src/assets/data/f${fundNumber}
+/** fetchProposalsData
+ * Axios get request to the proposals.json file in the PA-Tool repository.
+ * Path configuration is provided on OPTIONS.PROPOSALS_URL
  * @param {integer} fundNumber 
  * @returns {proposalsObj}
  */
- async function getProposalsData(fundNumber) {
-  console.log("... axios request to Catalyst PA-Tool repository data")
+ async function fetchProposalsData(fundNumber) {
+  console.log("... axios request to < proposals.json > on Catalyst PA-Tool repository")
   let data;
-  const axios = require('axios');
   try {
-    const resp = await axios.get(`https://raw.githubusercontent.com/Project-Catalyst/pa-tool/master/src/assets/data/f${fundNumber}/proposals.json`);
+    const resp = await axios.get(getPath('proposals', fundNumber));
     data = resp.data;
   } catch (error) {
     console.log(`!! Error requesting from Catalyst Voter Tool repository:`, error)
@@ -48,9 +77,22 @@ async function getChallengesData(fundNumber) {
   return data
 }
 
+/** fetchAssessmentsData
+ * Axios get request to the assessments.csv file related to the VPA-Tool repository.
+ * The file is loaded from local storage. Path configuration is provided on OPTIONS.ASSESSMENTS_PATH
+ * @param {integer} fundNumber 
+ * @returns {proposalsObj}
+ */
+ async function fetchAssessmentsData(fundNumber) {
+  console.log("... loading < assessments.csv > from local storage < options.json.assessments_path >")
+  const data = await csvParser().fromFile(getPath('assessments', fundNumber));
+  return data
+}
 
-/** CATALYST SUPABASE API FUCTIONS
- * 
+/************************************
+    CATALYST SUPABASE API FUCTIONS
+ ************************************ 
+ *
  * Functions to access Catalyst Supabase API endpoints
  * through the process of Pushing data regarding a specific Fund to the Catalyst Supabase tables.
  * 
@@ -150,8 +192,10 @@ async function supabaseInsert(table, insertData) {
 }
 
 
-/** PUSH PIPELINE FUNCTIONS
- * 
+/******************************
+    PUSH PIPELINE FUNCTIONS
+ ****************************** 
+ *
  * Functions to composing the code pipeline to 
  * Pushing data regarding a specific Fund to the Catalyst Supabase tables.
  *  
@@ -183,10 +227,9 @@ async function insertTblFunds(fundNumber) {
  * The data information for Challenges is fetched from the Voter-Tool Repository.
  * @param {integer} fundNumber 
  */
-async function insertTblChallenges(fundNumber) {
+async function insertTblChallenges(fundNumber, fund) {
   console.log('\n>> INSERT TBL-Challenges DATA:')
-  let challenges = await getChallengesData(fundNumber)
-  let fund = await getFundByNumber(fundNumber);
+  let challenges = await fetchChallengesData(fundNumber)
   let insertData = challenges.map( (ch) => (
     {
       internal_id: ch.id,
@@ -201,11 +244,9 @@ async function insertTblChallenges(fundNumber) {
   await supabaseInsert("Challenges", insertData)
 }
 
-async function insertTblProposals(fundNumber) {
+async function insertTblProposals(fundNumber, fund, challenges) {
   console.log('\n>> INSERT TBL-Proposals DATA:')
-  let proposals = await getProposalsData(fundNumber)
-  let fund = await getFundByNumber(fundNumber);
-  let challenges = await getChallengesByFund(fundNumber)
+  let proposals = await fetchProposalsData(fundNumber)
   let insertData = proposals.map( (p) => (
     {
       internal_id: p.id,
@@ -225,13 +266,68 @@ async function insertTblProposals(fundNumber) {
   await supabaseInsert("Proposals", insertData)
 }
 
+async function insertTblAssessors(fundNumber, fund, challenges) {
+  console.log('\n>> INSERT TBL-Assessments DATA:')
+  let assessments = await getAssessmentsData(fundNumber)
+  let insertData = proposals.map( (p) => (
+    {
+      internal_id: p.id,
+      title:  p.title,
+      url:  p.url,
+      author: p.author,
+      problem_statement:  p.description,
+      problem_solution:  p.problem_solution,
+      relevant_experience:  p.relevant_experience,
+      budget:  p.requested_funds,
+      currency: "$",
+      tags: p.tags,
+      challenge_id:  challenges.filter( (ch) => ch.internal_id===p.category )[0].id,
+      fund_id: fund.id
+    }
+  ))
+  await supabaseInsert("Assessors", insertData)
+}
+
+async function insertTblAssessments(fundNumber, fund, challenges) {
+  console.log('\n>> INSERT TBL-Assessments DATA:')
+  let assessments = await getAssessmentsData(fundNumber)
+  let insertData = proposals.map( (p) => (
+    {
+      internal_id: p.id,
+      title:  p.title,
+      url:  p.url,
+      author: p.author,
+      problem_statement:  p.description,
+      problem_solution:  p.problem_solution,
+      relevant_experience:  p.relevant_experience,
+      budget:  p.requested_funds,
+      currency: "$",
+      tags: p.tags,
+      challenge_id:  challenges.filter( (ch) => ch.internal_id===p.category )[0].id,
+      fund_id: fund.id
+    }
+  ))
+  await supabaseInsert("Assessments", insertData)
+}
+
 
 async function pushFundData(fundNumber) {
   console.log(`=============================\n CALL TO < pushFundData(${fundNumber}) >\n=============================`)
-   
-  await insertTblFunds(parseInt(fundNumber))
-  await insertTblChallenges(parseInt(fundNumber))
-  await insertTblProposals(parseInt(fundNumber))
+  fundNumber = parseInt(fundNumber)
+
+  // await insertTblFunds(fundNumber)
+  // let fund = await getFundByNumber(fundNumber);
+
+  await insertTblChallenges(fundNumber)
+  // let challenges = await getChallengesByFund(fundNumber, fund)
+
+  // await insertTblProposals(fundNumber, fund, challenges)
+
+  await fetchAssessmentsData()
+
+  await insertTblAssessors(fundNumber)
+
+  await insertTblAssessments(fundNumber, fund, challenges)
 
 }
 

@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
+import fs from 'fs'
+let options = JSON.parse(fs.readFileSync('./options.json', 'utf-8'))
 
 export const supabase = createClient(
-  "https://wdlhlyygpndwbbwzauuv.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkbGhseXlncG5kd2Jid3phdXV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE2NjM4NDA1OTksImV4cCI6MTk3OTQxNjU5OX0.fyq2VRYStjd4qe6r6a5RCQ1L79MrFvptvQKqbVRCnI4"
+  options.CATALYST_SUPABASE_URL,
+  options.CATALYST_SUPABASE_ANON_KEY
 )
