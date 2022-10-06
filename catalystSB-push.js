@@ -10,7 +10,7 @@ const csvParser = require('csvtojson');
 const { Command } = require('commander');
 const program = new Command();
 program
-  .description('Push data from Catalyst Repositories to Catalyst Supabase database.')
+  .description('Push an entire Fund data to the Catalyst Supabase tables.')
   .requiredOption('-f, --fund <fundNumber>', 'catalyst Fund number reference to push data', 9);
 program.parse(process.argv);
 
@@ -24,12 +24,24 @@ program.parse(process.argv);
  *  
  */
 
+function spliceIntoChunks(arr, chunkSize=1000) {
+  const res = [];
+  while (arr.length > 0) {
+      const chunk = arr.splice(0, chunkSize);
+      res.push(chunk);
+  }
+  return res;
+}
+
 function getPath(fileRef, fundNumber) {
   if(fileRef==='challenges') {
     return OPTIONS.CHALLENGES_URL.replace("${fundNumber}", String(fundNumber))
   }
-  else if(fileRef==='proposals') {
-    return OPTIONS.PROPOSALS_URL.replace("${fundNumber}", String(fundNumber))
+  else if(fileRef==='proposals_pa') {
+    return OPTIONS.PROPOSALS_URL_PA.replace("${fundNumber}", String(fundNumber))
+  }
+  else if(fileRef==='proposals_vpa') {
+    return OPTIONS.PROPOSALS_URL_VPA
   }
   else if (fileRef==='assessments') {
     return OPTIONS.ASSESSMENTS_PATH
@@ -64,11 +76,11 @@ async function fetchChallengesData(fundNumber) {
  * @param {integer} fundNumber 
  * @returns {proposalsObj}
  */
- async function fetchProposalsData(fundNumber) {
+ async function fetchProposalsData(fundNumber, repo='pa') {
   console.log("... axios request to < proposals.json > on Catalyst PA-Tool repository")
   let data;
   try {
-    const resp = await axios.get(getPath('proposals', fundNumber));
+    const resp = await axios.get(getPath(`proposals_${repo}`, fundNumber));
     data = resp.data;
   } catch (error) {
     console.log(`!! Error requesting from Catalyst Voter Tool repository:`, error)
@@ -219,17 +231,16 @@ async function getAssessors() {
  * @param {Array} insertData 
  * @returns 
  */
-async function supabaseInsert(table, insertData) {
-  console.log("... connecting with catalystSB-api for data insertion")
+async function supabaseInsert(table, insertData, chunk=false) {
   let {supabase} = await import(CATALYST_API_MODULE);
   const { data, error } = await supabase
     .from(table)
     .insert(insertData)
   if(error) { 
     console.log(error)
-    throw new Error(`Error requesting from Catalyst Supabase ${table} Table`)
+    throw new Error(`Error requesting from Catalyst Supabase ${table} Table (chunk=${chunk})`)
   } else {
-    console.log(`> insert >> Catalyst Supabase Table-${table} ${data.length} records inserted.`)
+    console.log(`> insert >> Catalyst Supabase Table-${table} ${data.length} records inserted (chunk=${chunk}).`)
   }
   return
 }
@@ -245,12 +256,28 @@ async function supabaseInsert(table, insertData) {
  */
 
 
-/** insertTblFunds
+async function pushData(table, insertData) {
+  if(insertData.length > 1500) {
+    console.log(`!! large data input (#${insertData.length})`)
+    let chunckData = spliceIntoChunks(insertData)
+    console.log(`... splice into #${chunckData.length} chunks`)
+    console.log("... connecting with catalystSB-api for data insertion")
+    for (const [ck_index, ck] of chunckData.entries()) {
+      await supabaseInsert(table, ck, ck_index)
+    }
+  }
+  else {
+    console.log("... connecting with catalystSB-api for data insertion")
+    await supabaseInsert(table, insertData)
+  }
+}
+
+/** pushTblFunds
  * Insert the Fund-<fundNumber> data as a row to the Catalyst Supabase Funds Table.
  * @param {integer} fundNumber 
  * @returns 
  */
-async function insertTblFunds(fundNumber) {
+async function pushTblFunds(fundNumber) {
   console.log('\n>> INSERT TBL-Funds DATA:')
   let allFundsNumbers = await getAllFundsNumbers()
   if ( !allFundsNumbers.includes(fundNumber) ) {
@@ -259,57 +286,74 @@ async function insertTblFunds(fundNumber) {
         title: `Fund ${fundNumber}`,
         number: parseInt(fundNumber)    
       }]
-    await supabaseInsert("Funds", data)
+    await pushData("Funds", data)
   }
-  else { console.log(`> insert >> TBL-Funds already contains Fund-${fundNumber} data\n`) }
+  else { console.log(`> insert >> TBL-Funds already contains Fund-${fundNumber} data`) }
   return
 }
 
-/** insertTblChallenges
+/** pushTblChallenges
  * Insert the Challenge's data regarding Fund-<fundNumber> to the Catalyst Supabase Challenges Tables.
  * The data information for Challenges is fetched from the Voter-Tool Repository.
  * @param {integer} fundNumber 
  */
-async function insertTblChallenges(fundNumber, fund) {
+async function pushTblChallenges(fundNumber, fund) {
   console.log('\n>> INSERT TBL-Challenges DATA:')
   let challenges = await fetchChallengesData(fundNumber)
-  let insertData = challenges.map( (ch) => (
-    {
+  let chSettingRegex = /Fund\d*\s*[Cc]hallenge\s*[Ss]etting/;
+  let insertData = challenges.map( (ch) => {
+    let isChallengeSetting;
+    (ch.title.match(chSettingRegex))
+    ? isChallengeSetting = true
+    : isChallengeSetting = false;
+    return {
       internal_id: ch.id,
       title: ch.title,
       brief: ch.description,
       budget: ch.amount,
       currency: "$",
       url: ch.url,
+      challenge_setting: isChallengeSetting,
       fund_id: fund.id
     }
-  ))
-  await supabaseInsert("Challenges", insertData)
+  })
+  await pushData("Challenges", insertData)
 }
 
-async function insertTblProposals(fund, challenges) {
+/** pushTblProposals
+ * 
+ * @param {*} fund 
+ * @param {*} challenges 
+ */
+async function pushTblProposals(fund, challenges) {
   console.log('\n>> INSERT TBL-Proposals DATA:')
+
   let proposals = await fetchProposalsData(fund.number)
-  let insertData = proposals.map( (p) => (
-    {
+  let insertData = proposals.map( (p) => {
+    let challenge = challenges.filter( (ch) => ch.internal_id===p.category )[0];
+    return {
       internal_id: p.id,
-      title:  p.title,
-      url:  p.url,
+      title: p.title,
+      url: p.url,
       author: p.author,
-      problem_statement:  p.description,
-      problem_solution:  p.problem_solution,
-      relevant_experience:  p.relevant_experience,
-      budget:  p.requested_funds,
+      problem_statement: p.description,
+      problem_solution: (p.hasOwnProperty('how_does_success_look_like_')) ? p.how_does_success_look_like_ : p.problem_solution,
+      relevant_experience: (p.hasOwnProperty('importance')) ? p.importance : p.relevant_experience,
+      budget: p.requested_funds,
       currency: "$",
       tags: p.tags,
-      challenge_id:  challenges.filter( (ch) => ch.internal_id===p.category )[0].id,
+      challenge_id: challenge.id,
       fund_id: fund.id
     }
-  ))
-  await supabaseInsert("Proposals", insertData)
+  })
+  await pushData("Proposals", insertData)
 }
 
-async function insertTblAssessors(fundNumber, assessments) {
+/** pushTblAssessors
+ * 
+ * @param {*} assessments 
+ */
+async function pushTblAssessors(assessments) {
   console.log('\n>> INSERT TBL-Assessors DATA:')
   let anon_unique_ids = [... new Set(assessments.map( p => p.Assessor))]
   let insertData = anon_unique_ids.map( (anonId) => (
@@ -317,24 +361,27 @@ async function insertTblAssessors(fundNumber, assessments) {
       anon_id: anonId
     }
   ))
-  await supabaseInsert("Assessors", insertData)
+  await pushData("Assessors", insertData)
 }
 
-async function insertTblAssessments(fund, challenges, proposals, assessments, assessors) {
+/** pushTblAssessments
+ * 
+ * @param {*} fund 
+ * @param {*} challenges 
+ * @param {*} proposals 
+ * @param {*} assessments 
+ * @param {*} assessors 
+ */
+async function pushTblAssessments(fund, challenges, proposals, assessments, assessors) {
   console.log('\n>> INSERT TBL-Assessments DATA:')
 
-  let insertData = assessments.map( (ass) => {
-    let assessorId = assessors.filter( (a) => a.anon_id===ass["Assessor"] )[0].id;
-    let challengeId = challenges.filter( (ch) => ch.internal_id===parseInt(ass["challenge_id"]) )[0].id;    
+  let insertData = assessments.map( (ass) => { 
     let matchProposals = proposals.filter( (p) => p.internal_id===parseInt(ass["proposal_id"]) );
-    let proposalId;
-    (matchProposals.length === 0)
-    ? proposalId = ""
-    : proposalId = matchProposals[0].id;
+
     return {
-      assessor_id: assessorId,
-      proposal_id: proposalId,
-      challenge_id: challengeId,
+      assessor_id: assessors.filter( (a) => a.anon_id===ass["Assessor"] )[0].id,
+      proposal_id: (matchProposals.length === 0) ? null : matchProposals[0].id,
+      challenge_id: challenges.filter( (ch) => ch.internal_id===parseInt(ass["challenge_id"]) )[0].id,
       fund_id: fund.id,
       impact_note: ass["Impact / Alignment Note"],
       impact_rating: parseInt(ass["Impact / Alignment Rating"]),
@@ -348,10 +395,10 @@ async function insertTblAssessments(fund, challenges, proposals, assessments, as
       rating_good: ass["Good"],
       rating_filteredout: ass["Filtered Out"],
       vpa_feedback: ass ["vPA Feedback"],
-      blank: ass["Blank"]
+      blank: (ass["Blank"] === "") ? false : ass["Blank"]
     }
   })
-  await supabaseInsert("Assessments", insertData)
+  await pushData("Assessments", insertData)
 }
 
 
@@ -359,21 +406,21 @@ async function pushFundData(fundNumber) {
   console.log(`=============================\n CALL TO < pushFundData(${fundNumber}) >\n=============================`)
   fundNumber = parseInt(fundNumber)
 
-  // await insertTblFunds(fundNumber)
+  await pushTblFunds(fundNumber)
   let fund = await getFundByNumber(fundNumber);
 
-  // await insertTblChallenges(fundNumber, fund)
+  await pushTblChallenges(fundNumber, fund)
   let challenges = await getChallengesByFund(fund)
 
-  // await insertTblProposals(fund, challenges)
+  await pushTblProposals(fund, challenges)
   let proposals = await getProposalsByFund(fund)
 
   let assessmentsData = await fetchAssessmentsData()
 
-  // await insertTblAssessors(fundNumber, assessmentsData) // add fund, challenge and proposals to populate ref columns
+  await pushTblAssessors(assessmentsData) // add fund, challenge and proposals to populate ref columns
   let assessors = await getAssessors()
 
-  await insertTblAssessments(fund, challenges, proposals, assessmentsData, assessors)
+  await pushTblAssessments(fund, challenges, proposals, assessmentsData, assessors)
 
 }
 
