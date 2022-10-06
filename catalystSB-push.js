@@ -29,7 +29,7 @@ function getPath(fileRef, fundNumber) {
     return OPTIONS.CHALLENGES_URL.replace("${fundNumber}", String(fundNumber))
   }
   else if(fileRef==='proposals') {
-    return OPTIONS.CHALLENGES_URL.replace("${fundNumber}", String(fundNumber))
+    return OPTIONS.PROPOSALS_URL.replace("${fundNumber}", String(fundNumber))
   }
   else if (fileRef==='assessments') {
     return OPTIONS.ASSESSMENTS_PATH
@@ -114,7 +114,7 @@ async function getAllFundsNumbers() {
     .select('number')
   
     if(error) { 
-    console.log(`!! Error requesting from Catalyst Supabase Funds: `, error)
+    console.log(error)
     throw new Error("Error requesting from Catalyst Supabase Funds Table")
   } 
   return data.map( (f) => f.number )
@@ -134,11 +134,10 @@ async function getFundByNumber(fundNumber) {
     .eq('number', fundNumber)
   
   if(error) { 
-    console.log(`!! Error requesting from Catalyst Supabase Funds: `, error)
+    console.log(error)
     throw new Error("Error requesting from Catalyst Supabase Funds Table")
   } 
   else if (data.length === 0) {
-    console.log(`!! Catalyst Supabase Table-Fund${fundNumber} do not exist.`)
     throw new Error(`Catalyst Supabase Fund${fundNumber} record not found.`)
   }
   else if (data.length > 1) {
@@ -149,23 +148,67 @@ async function getFundByNumber(fundNumber) {
 
 /** getChallengesByFund
  * Get the Fund row object from Catalyst Supabase Funds Table related to the fundNumber provived.
- * @param {integer} fundNumber 
+ * @param {fundObj} fund
  * @returns {challengesObj}
  */
- async function getChallengesByFund(fundNumber) {
-  console.log(`... connecting with catalystSB-api < getChallengesByFund(${fundNumber}) >`)
+ async function getChallengesByFund(fund) {
+  console.log(`... connecting with catalystSB-api < getChallengesByFund(${fund.number}) >`)
   let {supabase} = await import(CATALYST_API_MODULE);
   const { data, error } = await supabase
     .from('Challenges')
     .select("*")
+    .eq('fund_id', fund.id)
   
   if(error) { 
-    console.log(`!! Error requesting from Catalyst Supabase Challenges: `, error)
+    console.log(error)
     throw new Error("Error requesting from Catalyst Supabase Challenges Table")
   } 
   else if (data.length === 0) {
-    console.log(`!! Catalyst Supabase Table-Challenges from Fund${fundNumber} do not exist.`)
-    throw new Error(`Catalyst Supabase Challenges fund_id=${fundNumber} records not found.`)
+    throw new Error(`Catalyst Supabase Challenges fund_id=${fund.number} records not found.`)
+  }
+  return data
+}
+
+/** getProposalsByFund
+ * Get the Proposal row object from Catalyst Supabase Proposals Table related to the Proposals.internal_id provived.
+ * @param {fundObj} fund 
+ * @returns {proposalsObj}
+ */
+ async function getProposalsByFund(fund) {
+  console.log(`... connecting with catalystSB-api < getProposalsByFund(${fund.number}) >`)
+  let {supabase} = await import(CATALYST_API_MODULE);
+  const { data, error } = await supabase
+    .from('Proposals')
+    .select("*")
+    .eq('fund_id', fund.id)
+  
+  if(error) { 
+    console.log(error)
+    throw new Error("Error requesting from Catalyst Supabase Proposals Table")
+  } 
+  else if (data.length === 0) {
+    throw new Error(`Catalyst Supabase Proposals fund_id=${fund.number} records not found.`)
+  }
+  return data
+}
+
+/** getAssessors
+ * 
+ * @returns 
+ */
+async function getAssessors() {
+  console.log(`... connecting with catalystSB-api < getAssessors() >`)
+  let {supabase} = await import(CATALYST_API_MODULE);
+  const { data, error } = await supabase
+    .from('Assessors')
+    .select("*")
+  
+  if(error) { 
+    console.log(error)
+    throw new Error("Error requesting from Catalyst Supabase Assessors Table")
+  } 
+  else if (data.length === 0) {
+    throw new Error(`Catalyst Supabase Assessors records not found.`)
   }
   return data
 }
@@ -183,7 +226,7 @@ async function supabaseInsert(table, insertData) {
     .from(table)
     .insert(insertData)
   if(error) { 
-    console.log(`!! Error inserting Catalyst Supabase ${table}: `, error)
+    console.log(error)
     throw new Error(`Error requesting from Catalyst Supabase ${table} Table`)
   } else {
     console.log(`> insert >> Catalyst Supabase Table-${table} ${data.length} records inserted.`)
@@ -218,7 +261,7 @@ async function insertTblFunds(fundNumber) {
       }]
     await supabaseInsert("Funds", data)
   }
-  else { console.log(`> insert >> TBL-Funds already contains Fund-${fundNumber} data`) }
+  else { console.log(`> insert >> TBL-Funds already contains Fund-${fundNumber} data\n`) }
   return
 }
 
@@ -244,9 +287,9 @@ async function insertTblChallenges(fundNumber, fund) {
   await supabaseInsert("Challenges", insertData)
 }
 
-async function insertTblProposals(fundNumber, fund, challenges) {
+async function insertTblProposals(fund, challenges) {
   console.log('\n>> INSERT TBL-Proposals DATA:')
-  let proposals = await fetchProposalsData(fundNumber)
+  let proposals = await fetchProposalsData(fund.number)
   let insertData = proposals.map( (p) => (
     {
       internal_id: p.id,
@@ -266,47 +309,48 @@ async function insertTblProposals(fundNumber, fund, challenges) {
   await supabaseInsert("Proposals", insertData)
 }
 
-async function insertTblAssessors(fundNumber, fund, challenges) {
-  console.log('\n>> INSERT TBL-Assessments DATA:')
-  let assessments = await getAssessmentsData(fundNumber)
-  let insertData = proposals.map( (p) => (
+async function insertTblAssessors(fundNumber, assessments) {
+  console.log('\n>> INSERT TBL-Assessors DATA:')
+  let anon_unique_ids = [... new Set(assessments.map( p => p.Assessor))]
+  let insertData = anon_unique_ids.map( (anonId) => (
     {
-      internal_id: p.id,
-      title:  p.title,
-      url:  p.url,
-      author: p.author,
-      problem_statement:  p.description,
-      problem_solution:  p.problem_solution,
-      relevant_experience:  p.relevant_experience,
-      budget:  p.requested_funds,
-      currency: "$",
-      tags: p.tags,
-      challenge_id:  challenges.filter( (ch) => ch.internal_id===p.category )[0].id,
-      fund_id: fund.id
+      anon_id: anonId
     }
   ))
   await supabaseInsert("Assessors", insertData)
 }
 
-async function insertTblAssessments(fundNumber, fund, challenges) {
+async function insertTblAssessments(fund, challenges, proposals, assessments, assessors) {
   console.log('\n>> INSERT TBL-Assessments DATA:')
-  let assessments = await getAssessmentsData(fundNumber)
-  let insertData = proposals.map( (p) => (
-    {
-      internal_id: p.id,
-      title:  p.title,
-      url:  p.url,
-      author: p.author,
-      problem_statement:  p.description,
-      problem_solution:  p.problem_solution,
-      relevant_experience:  p.relevant_experience,
-      budget:  p.requested_funds,
-      currency: "$",
-      tags: p.tags,
-      challenge_id:  challenges.filter( (ch) => ch.internal_id===p.category )[0].id,
-      fund_id: fund.id
+
+  let insertData = assessments.map( (ass) => {
+    let assessorId = assessors.filter( (a) => a.anon_id===ass["Assessor"] )[0].id;
+    let challengeId = challenges.filter( (ch) => ch.internal_id===parseInt(ass["challenge_id"]) )[0].id;    
+    let matchProposals = proposals.filter( (p) => p.internal_id===parseInt(ass["proposal_id"]) );
+    let proposalId;
+    (matchProposals.length === 0)
+    ? proposalId = ""
+    : proposalId = matchProposals[0].id;
+    return {
+      assessor_id: assessorId,
+      proposal_id: proposalId,
+      challenge_id: challengeId,
+      fund_id: fund.id,
+      impact_note: ass["Impact / Alignment Note"],
+      impact_rating: parseInt(ass["Impact / Alignment Rating"]),
+      feasibility_note: ass["Feasibility Note"],
+      feasibility_rating: parseInt(ass["Feasibility Rating"]),
+      auditability_note: ass["Auditability Note"],
+      auditability_rating: parseInt(ass["Auditability Rating"]),
+      proposer_mark: ass["Proposer Mark"],
+      proposer_filteredout: ass["Proposer Filtered Out rationale or Feedback"],
+      rating_excellent: ass["Excellent"],
+      rating_good: ass["Good"],
+      rating_filteredout: ass["Filtered Out"],
+      vpa_feedback: ass ["vPA Feedback"],
+      blank: ass["Blank"]
     }
-  ))
+  })
   await supabaseInsert("Assessments", insertData)
 }
 
@@ -316,18 +360,20 @@ async function pushFundData(fundNumber) {
   fundNumber = parseInt(fundNumber)
 
   // await insertTblFunds(fundNumber)
-  // let fund = await getFundByNumber(fundNumber);
+  let fund = await getFundByNumber(fundNumber);
 
-  await insertTblChallenges(fundNumber)
-  // let challenges = await getChallengesByFund(fundNumber, fund)
+  // await insertTblChallenges(fundNumber, fund)
+  let challenges = await getChallengesByFund(fund)
 
-  // await insertTblProposals(fundNumber, fund, challenges)
+  // await insertTblProposals(fund, challenges)
+  let proposals = await getProposalsByFund(fund)
 
-  await fetchAssessmentsData()
+  let assessmentsData = await fetchAssessmentsData()
 
-  await insertTblAssessors(fundNumber)
+  // await insertTblAssessors(fundNumber, assessmentsData) // add fund, challenge and proposals to populate ref columns
+  let assessors = await getAssessors()
 
-  await insertTblAssessments(fundNumber, fund, challenges)
+  await insertTblAssessments(fund, challenges, proposals, assessmentsData, assessors)
 
 }
 
