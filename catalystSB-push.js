@@ -364,6 +364,18 @@ async function pushTblAssessors(assessments) {
   await pushData("Assessors", insertData)
 }
 
+async function pushTblAssessorsFunds(assessors, fund) {
+  console.log('\n>> INSERT TBL-AssessorsFunds DATA:')
+
+  let insertData = assessors.map( (ass) => (
+    {
+      assessor_id: ass.id,
+      fund_id: fund.id,
+    }
+  ))
+  await pushData("AssessorsFunds", insertData)
+}
+
 /** pushTblAssessments
  * 
  * @param {*} fund 
@@ -419,6 +431,8 @@ async function pushFundData(fundNumber) {
 
   await pushTblAssessors(assessmentsData) // add fund, challenge and proposals to populate ref columns
   let assessors = await getAssessors()
+
+  await pushTblAssessorsFunds(assessors, fund)
 
   await pushTblAssessments(fund, challenges, proposals, assessmentsData, assessors)
 
