@@ -421,21 +421,21 @@ async function pushFundData(fundNumber) {
   console.log(`=============================\n CALL TO < pushFundData(${fundNumber}) >\n=============================`)
   fundNumber = parseInt(fundNumber)
 
-  // await pushTblFunds(fundNumber)
+  await pushTblFunds(fundNumber)
   let fund = await getFundByNumber(fundNumber);
 
-  // await pushTblChallenges(fundNumber, fund)
+  await pushTblChallenges(fundNumber, fund)
   let challenges = await getChallengesByFund(fund)
 
-  // await pushTblProposals(fund, challenges)
+  await pushTblProposals(fund, challenges)
   let proposals = await getProposalsByFund(fund)
 
   let assessmentsData = await fetchAssessmentsData()
 
-  // await pushTblAssessors(assessmentsData) // add fund, challenge and proposals to populate ref columns
+  await pushTblAssessors(assessmentsData) // add fund, challenge and proposals to populate ref columns
   let assessors = await getAssessors()
 
-  // await pushTblAssessorsFunds(assessors, fund)
+  await pushTblAssessorsFunds(assessors, fund)
 
   await pushTblAssessments(fund, challenges, proposals, assessmentsData, assessors)
 
