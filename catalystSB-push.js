@@ -395,12 +395,15 @@ async function pushTblAssessments(fund, challenges, proposals, assessments, asse
       proposal_id: (matchProposals.length === 0) ? null : matchProposals[0].id,
       challenge_id: challenges.filter( (ch) => ch.internal_id===parseInt(ass["challenge_id"]) )[0].id,
       fund_id: fund.id,
+      vpas_reviews: 0,
       impact_note: ass["Impact / Alignment Note"],
       impact_rating: parseInt(ass["Impact / Alignment Rating"]),
       feasibility_note: ass["Feasibility Note"],
       feasibility_rating: parseInt(ass["Feasibility Rating"]),
       auditability_note: ass["Auditability Note"],
       auditability_rating: parseInt(ass["Auditability Rating"]),
+      rating_avg: (parseInt(ass["Impact / Alignment Rating"])+parseInt(ass["Feasibility Rating"])+parseInt(ass["Auditability Rating"]))/3,
+      notes_len: ass["Impact / Alignment Note"].length + ass["Feasibility Note"].length + ass["Auditability Note"].length,
       proposer_mark: ass["Proposer Mark"],
       proposer_filteredout: ass["Proposer Filtered Out rationale or Feedback"],
       rating_excellent: ass["Excellent"],
@@ -418,21 +421,21 @@ async function pushFundData(fundNumber) {
   console.log(`=============================\n CALL TO < pushFundData(${fundNumber}) >\n=============================`)
   fundNumber = parseInt(fundNumber)
 
-  await pushTblFunds(fundNumber)
+  // await pushTblFunds(fundNumber)
   let fund = await getFundByNumber(fundNumber);
 
-  await pushTblChallenges(fundNumber, fund)
+  // await pushTblChallenges(fundNumber, fund)
   let challenges = await getChallengesByFund(fund)
 
-  await pushTblProposals(fund, challenges)
+  // await pushTblProposals(fund, challenges)
   let proposals = await getProposalsByFund(fund)
 
   let assessmentsData = await fetchAssessmentsData()
 
-  await pushTblAssessors(assessmentsData) // add fund, challenge and proposals to populate ref columns
+  // await pushTblAssessors(assessmentsData) // add fund, challenge and proposals to populate ref columns
   let assessors = await getAssessors()
 
-  await pushTblAssessorsFunds(assessors, fund)
+  // await pushTblAssessorsFunds(assessors, fund)
 
   await pushTblAssessments(fund, challenges, proposals, assessmentsData, assessors)
 
